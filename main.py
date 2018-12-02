@@ -1,6 +1,6 @@
 # %% import libs
 import os
-import logging as logger
+import logging
 import mxnet as mx
 import tqdm
 from mxnet import autograd
@@ -12,7 +12,7 @@ from utils import vis
 import models
 
 mx.random.seed(5)
-logger.basicConfig(level=logger.INFO)
+logger = logging.getLogger(name='GAN')
 
 # %% define parameters
 epoch = 10
