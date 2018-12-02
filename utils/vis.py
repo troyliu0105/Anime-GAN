@@ -17,6 +17,7 @@ def show_img(img_arr, title=None, save_path=None):
         plt.title(title)
     if save_path:
         plt.imsave(os.path.join(save_path, "{:04d}.jpg".format(_saved_times)), img)
+        _saved_times += 1
     else:
         plt.imshow(img)
         plt.show()
