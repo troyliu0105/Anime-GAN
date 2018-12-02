@@ -1,9 +1,9 @@
 from mxnet import gluon
 
 
-class Sucker(gluon.nn.HybridSequential):
+class Discriminator(gluon.nn.HybridSequential):
     def __init__(self, **kwargs):
-        super(Sucker, self).__init__(**kwargs)
+        super(Discriminator, self).__init__(**kwargs)
 
         # out = (in - ks) * strides - 2 * padding + ks + out_padding
         with self.name_scope():

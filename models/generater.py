@@ -1,9 +1,9 @@
 from mxnet import gluon
 
 
-class Fucker(gluon.nn.HybridSequential):
+class Generator(gluon.nn.HybridSequential):
     def __init__(self, **kwargs):
-        super(Fucker, self).__init__(**kwargs)
+        super(Generator, self).__init__(**kwargs)
 
         # in:1 -> 4 -> 8 -> 16 -> 32 -> 64 -> 128 -> 256
         # out = (in - 1) * strides - 2 * padding + ks + out_padding

@@ -2,8 +2,6 @@
 import os
 import logging as logger
 import mxnet as mx
-import numpy as np
-import pendulum as pdl
 import tqdm
 from mxnet import autograd
 from mxnet import gluon
@@ -45,31 +43,29 @@ tfs_val = gluon.data.vision.transforms.Compose([
 
 train_set, val_set = load_rem()
 train_loader = gluon.data.DataLoader(train_set.transform_first(tfs_train), batch_size=batch_size, shuffle=True,
-                                     last_batch='rollover', num_workers=0, pin_memory=True,
-                                     )
+                                     last_batch='rollover', num_workers=2, pin_memory=True)
 val_loader = gluon.data.DataLoader(val_set.transform_first(tfs_val),
                                    batch_size=batch_size, shuffle=False,
-                                   last_batch='rollover', num_workers=0, pin_memory=True,
-                                   )
+                                   last_batch='rollover', num_workers=2, pin_memory=True)
 
 # %% define models
-fucker = models.make_fucker()
-sucker = models.make_sucker()
-fucker.initialize(ctx=CTX)
-sucker.initialize(ctx=CTX)
-fucker.hybridize()
-sucker.hybridize()
+generator = models.make_gen()
+discriminator = models.make_dis()
+generator.initialize(ctx=CTX)
+discriminator.initialize(ctx=CTX)
+generator.hybridize()
+discriminator.hybridize()
 
 # %% prepare training
 history_labels = ['gloss', 'gval_loss', 'dloss', 'dval_loss']
 history = TrainingHistory(labels=history_labels)
 logger.info("Prepare training")
 loss = gluon.loss.SigmoidBinaryCrossEntropyLoss()
-trainer_fucker = gluon.Trainer(fucker.collect_params(), optimizer='adam', optimizer_params={
+trainer_gen = gluon.Trainer(generator.collect_params(), optimizer='adam', optimizer_params={
     'learning_rate': lr,
     'wd': 0.00001
 })
-trainer_sucker = gluon.Trainer(sucker.collect_params(), optimizer='adam', optimizer_params={
+trainer_dis = gluon.Trainer(discriminator.collect_params(), optimizer='adam', optimizer_params={
     'learning_rate': lr,
     'wd': 0.00001
 })
@@ -83,7 +79,15 @@ def validation(g, d, val_loader):
     g_val_loss = 0.0
     d_val_loss = 0.0
     iter_times = 0
-    for data, _ in val_loader:
+    for data, _ in tqdm.tqdm(
+            val_loader,
+            desc="Validating",
+            leave=True,
+            unit='batch',
+            unit_scale=True,
+            mininterval=1,
+            maxinterval=5,
+            dynamic_ncols=True):
         iter_times += 1
         bs = len(data)
         nosise = make_noises(bs)
@@ -113,58 +117,53 @@ for ep in range(1, epoch + 1):
     g_train_loss = 0.0
     d_train_loss = 0.0
     iter_times = 0
-    progress = tqdm.tqdm(
-        total=len(train_loader) * batch_size,
-        desc="Epoch {}".format(ep),
-        leave=True,
-        unit='batch',
-        unit_scale=True,
-        mininterval=1,
-        maxinterval=5,
-        dynamic_ncols=True
-    )
-    for data, _ in train_loader:
+    for data, _ in tqdm.tqdm(
+            train_loader,
+            desc="Epoch {}".format(ep),
+            leave=True,
+            unit='batch',
+            unit_scale=True,
+            mininterval=1,
+            maxinterval=5,
+            dynamic_ncols=True):
         iter_times += 1
         bs = len(data)
         nosise = make_noises(bs)
 
-        # begin training sucker
+        # begin training discriminator
         with autograd.record():
             # train with real image
-            out = sucker(data)
+            out = discriminator(data)
             err2real = loss(out, true_label)
 
-            fake_img = fucker(nosise)
-            out = sucker(fake_img).flatten()
+            # train with fake image
+            fake_img = generator(nosise)
+            out = discriminator(fake_img).flatten()
             err2fake = loss(out, fake_label)
 
-            err4sucker = err2real + err2fake
-        err4sucker.backward()
-        trainer_sucker.step(bs)
-        d_train_loss += err4sucker.mean().asscalar()
+            err4dis = err2real + err2fake
+        err4dis.backward()
+        trainer_dis.step(bs)
+        d_train_loss += err4dis.mean().asscalar()
 
-        # begin training fucker
+        # begin training generator
         with autograd.record():
-            fake_img = fucker(nosise)
-            out = sucker(fake_img).flatten()
-            err4fucker = loss(out, true_label)
-        err4fucker.backward()
-        trainer_fucker.step(bs)
-        g_train_loss += err4fucker.mean().asscalar()
-        progress.update(bs)
-
-    progress.clear()
-    progress.close()
+            fake_img = generator(nosise)
+            out = discriminator(fake_img).flatten()
+            err4gen = loss(out, true_label)
+        err4gen.backward()
+        trainer_gen.step(bs)
+        g_train_loss += err4gen.mean().asscalar()
 
     g_train_loss /= iter_times
     d_train_loss /= iter_times
-    g_val_loss, d_val_loss = validation(fucker, sucker, val_loader)
+    g_val_loss, d_val_loss = validation(generator, discriminator, val_loader)
     history.update([g_train_loss, g_val_loss, d_train_loss, d_val_loss])
     logger.info("Generator[train: {}, val: {}]".format(g_train_loss, g_val_loss))
     logger.info("Discriminator[train: {}, val: {}]".format(d_train_loss, d_val_loss))
     # if ep % 10 == 0:
-    fake = fucker(make_noises(1))[0]
+    fake = generator(make_noises(1))[0]
     vis.show_img(fake.transpose((1, 2, 0)), save_path='logs/pred')
 
-fucker.save_parameters('g_params')
+generator.save_parameters('g_params')
 history.plot(history_labels, save_path='logs/historys')
