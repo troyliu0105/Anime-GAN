@@ -83,8 +83,7 @@ def download_konachan(save_dir: str, tag='hatsune_miku', wanna_size=5000, is_con
 
     # download every page
     while downloaded_times < wanna_size:
-        base_url = 'http://konachan.com/post?page={:d}&tags={:s}+order%3Afav+rating%3Asafe'.format(
-            pages, tag)
+        base_url = 'http://konachan.com/post?page={:d}&tags={:s}+order%3Afav+rating%3Asafe'.format(pages, tag)
         res = sess.get(base_url, proxies=proxies)
 
         # find all directlinks

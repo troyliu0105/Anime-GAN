@@ -11,6 +11,7 @@ def trans_array_to_image(arr: nd.NDArray):
 
 
 def show_img(img_arr, title=None, save_path=None):
+    global _saved_times
     img = trans_array_to_image(img_arr)
     plt.clf()
     if title:

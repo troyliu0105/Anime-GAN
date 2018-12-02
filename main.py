@@ -1,6 +1,6 @@
 # %% import libs
 import os
-import logging
+import logging as logger
 import mxnet as mx
 import tqdm
 from mxnet import autograd
@@ -12,7 +12,7 @@ from utils import vis
 import models
 
 mx.random.seed(5)
-logger = logging.getLogger(name='GAN')
+logger.basicConfig(level=logger.INFO)
 
 # %% define parameters
 epoch = 10
@@ -29,6 +29,7 @@ else:
 
 # %% define dataloader
 logger.info("Prepare data")
+# noinspection PyTypeChecker
 tfs_train = gluon.data.vision.transforms.Compose([
     gluon.data.vision.transforms.Resize(size=(256, 256), interpolation=1),
     gluon.data.vision.transforms.RandomFlipLeftRight(),
@@ -36,13 +37,14 @@ tfs_train = gluon.data.vision.transforms.Compose([
     gluon.data.vision.transforms.ToTensor()
 ])
 
+# noinspection PyTypeChecker
 tfs_val = gluon.data.vision.transforms.Compose([
     gluon.data.vision.transforms.Resize(size=(256, 256), interpolation=1),
     gluon.data.vision.transforms.ToTensor()
 ])
 
 train_set, val_set = load_rem()
-train_loader = gluon.data.DataLoader(train_set.transform_first(tfs_train), batch_size=batch_size, shuffle=True,
+train_loader = gluon.data.DataLoader(val_set.transform_first(tfs_train), batch_size=batch_size, shuffle=True,
                                      last_batch='rollover', num_workers=2, pin_memory=True)
 val_loader = gluon.data.DataLoader(val_set.transform_first(tfs_val),
                                    batch_size=batch_size, shuffle=False,
@@ -51,8 +53,8 @@ val_loader = gluon.data.DataLoader(val_set.transform_first(tfs_val),
 # %% define models
 generator = models.make_gen()
 discriminator = models.make_dis()
-generator.initialize(ctx=CTX)
-discriminator.initialize(ctx=CTX)
+generator.initialize(init=mx.init.Xavier(magnitude=2.5), ctx=CTX)
+discriminator.initialize(init=mx.init.Xavier(magnitude=2.5), ctx=CTX)
 generator.hybridize()
 discriminator.hybridize()
 
@@ -60,9 +62,10 @@ discriminator.hybridize()
 history_labels = ['gloss', 'gval_loss', 'dloss', 'dval_loss']
 history = TrainingHistory(labels=history_labels)
 logger.info("Prepare training")
-loss = gluon.loss.SigmoidBinaryCrossEntropyLoss()
-trainer_gen = gluon.Trainer(generator.collect_params(), optimizer='adam', optimizer_params={
-    'learning_rate': lr,
+loss = gluon.loss.SigmoidBinaryCrossEntropyLoss(from_sigmoid=False)
+trainer_gen = gluon.Trainer(generator.collect_params(), optimizer='sgd', optimizer_params={
+    'learning_rate': lr * 0.01,
+    'momentum': 0.9,
     'wd': 0.00001
 })
 trainer_dis = gluon.Trainer(discriminator.collect_params(), optimizer='adam', optimizer_params={

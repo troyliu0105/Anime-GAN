@@ -39,7 +39,7 @@ class Discriminator(gluon.nn.HybridSequential):
                 # output (batch, 512, 4, 4)
 
                 gluon.nn.Conv2D(1, kernel_size=4, strides=2, padding=0, use_bias=False),
-                gluon.nn.BatchNorm(),
-                gluon.nn.Activation('relu'),
+                # gluon.nn.BatchNorm(),
+                # gluon.nn.Activation('relu'),
                 # output (batch, 2, 1, 1)
             )
