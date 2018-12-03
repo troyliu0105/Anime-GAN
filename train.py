@@ -1,5 +1,6 @@
 # %% import libs
 import os
+import argparse
 import logging as logger
 import mxnet as mx
 import tqdm
@@ -15,18 +16,30 @@ import models
 mx.random.seed(5)
 logger.basicConfig(level=logger.INFO, filename='logs/train_loss.log')
 
+arg = argparse.ArgumentParser(description="training parameters")
+arg.add_argument('--lr', type=float, default=0.0001, help='learning rate')
+arg.add_argument('--batch', type=int, default=8, help='batch size')
+arg.add_argument('--epoch', type=int, default=500, help='training epochs')
+arg.add_argument('--continue', type=bool, default=True, help='should continue with last checkpoint')
+arg.add_argument('--save_checkpoint', type=bool, default=False, help='whether save checkpoint')
+arg.add_argument('--save_per_epoch', type=int, default=5, help='save checkpoint every specific epochs')
+arg.add_argument('--save_dir', type=str, default='saved/params', help='check point save path')
+arg.add_argument('--cuda', type=bool, default=True, help='whether use gpu, default is True')
+arg.add_argument('--pred_pre_epoch', type=int, default=2, help='make a pred every specific epoch')
+
+opt = arg.parse_args()
+
 # %% define parameters
-epoch = 1500
-batch_size = 8
-lr = 0.0001
-CTX = mx.gpu()
-try:
-    _ = mx.nd.ones(shape=(1), ctx=CTX)
-except mx.MXNetError:
-    CTX = mx.cpu_pinned()
-    logger.warning("Can't use gpu, use {} instead".format(CTX))
-else:
-    logger.info("Will use {}".format(CTX))
+epoch = opt.epoch
+batch_size = opt.batch
+lr = opt.lr
+should_save_checkpoint = opt.save_checkpoint
+save_per_epoch = opt.save_per_epoch
+save_dir = opt.save_dir
+pred_pre_epoch = opt.pred_pre_epoch
+
+CTX = mx.gpu() if opt.cuda else mx.cpu()
+logger.info('Will use {}'.format(CTX))
 
 # %% define dataloader
 logger.info("Prepare data")
@@ -58,6 +71,11 @@ generator = models.make_gen()
 discriminator = models.make_dis()
 generator.initialize(init=mx.init.Normal(0.02), ctx=CTX)
 discriminator.initialize(init=mx.init.Normal(0.02), ctx=CTX)
+if getattr(opt, 'continue'):
+    import utils
+
+    utils.load_model_from_params(generator, discriminator, save_dir)
+
 generator.hybridize()
 discriminator.hybridize()
 
@@ -181,13 +199,14 @@ for ep in tqdm.tqdm(range(1, epoch + 1),
     # logger.info("Generator[train: {}, val: {}]".format(g_train_loss, g_val_loss))
     # logger.info("Discriminator[train: {}, val: {}]".format(d_train_loss, d_val_loss))
     logger.info("Generator[{}], Discriminator[{}]".format(g_train_loss, d_train_loss))
-    if ep % 2 == 0:
+    if ep % pred_pre_epoch == 0:
         fake = generator(make_noises(1))[0]
         vis.show_img(fake.transpose((1, 2, 0)), save_path='logs/pred')
-    if ep % 5 == 0:
-        generator.save_parameters('saved/params/g_for_rem_face_at_{:05d}.params'.format(ep))
-    if ep % 50 == 0:
-        history.plot(history_labels, save_path='logs/historys')
+    if should_save_checkpoint:
+        if ep % save_per_epoch == 0:
+            generator.save_parameters(os.path.join(save_dir, 'generator_{:04d}.params'.format(ep)))
+            discriminator.save_parameters(os.path.join(save_dir, 'discriminator_{:04d}.params'.format(ep)))
+    history.plot(history_labels, save_path='logs/historys')
 
 generator.save_parameters('g_params_for_rem')
 history.plot(history_labels, save_path='logs/historys')
