@@ -6,10 +6,9 @@ import mxnet as mx
 import tqdm
 from mxnet import autograd
 from mxnet import gluon
-from mxnet.gluon.data.vision import ImageRecordDataset
 from gluoncv.utils import TrainingHistory
 
-from datasets import load_face, load_rem
+import datasets as gan_datasets
 from utils import vis
 import models
 
@@ -25,19 +24,24 @@ arg.add_argument('--save_checkpoint', type=bool, default=False, help='whether sa
 arg.add_argument('--save_per_epoch', type=int, default=5, help='save checkpoint every specific epochs')
 arg.add_argument('--save_dir', type=str, default='saved/params', help='check point save path')
 arg.add_argument('--cuda', type=bool, default=True, help='whether use gpu, default is True')
-arg.add_argument('--pred_pre_epoch', type=int, default=2, help='make a pred every specific epoch')
+arg.add_argument('--pred_per_epoch', type=int, default=2, help='make a pred every specific epoch')
+arg.add_argument('--validation', type=bool, default=False, help='whether use validation set, default: False')
+arg.add_argument('--dataset', type=str, default='rem', help='rem, miku, face')
 
 opt = arg.parse_args()
 
 # %% define parameters
 epoch = opt.epoch
-epoch_start = epoch + 1
+epoch_start = 0
 batch_size = opt.batch
 lr = opt.lr
 should_save_checkpoint = opt.save_checkpoint
 save_per_epoch = opt.save_per_epoch
 save_dir = opt.save_dir
-pred_pre_epoch = opt.pred_pre_epoch
+pred_per_epoch = opt.pred_per_epoch
+should_use_val = opt.validation
+dataset = opt.dataset
+dataset_loader = getattr(gan_datasets, 'load_{}'.format(dataset))
 
 CTX = mx.gpu() if opt.cuda else mx.cpu()
 logger.info('Will use {}'.format(CTX))
@@ -58,9 +62,8 @@ tfs_val = gluon.data.vision.transforms.Compose([
     # gluon.data.vision.transforms.ToTensor()
 ])
 
-train_set, val_set = load_rem()
-rem_face_set = ImageRecordDataset('rem_face_dataset.rec')
-train_loader = gluon.data.DataLoader(rem_face_set.transform_first(tfs_train),
+train_set, val_set = dataset_loader()
+train_loader = gluon.data.DataLoader(train_set.transform_first(tfs_train),
                                      batch_size=batch_size, shuffle=True,
                                      last_batch='rollover', num_workers=4, pin_memory=True)
 val_loader = gluon.data.DataLoader(val_set.transform_first(tfs_val),
@@ -76,14 +79,16 @@ if getattr(opt, 'continue'):
     import utils
 
     epoch_start = utils.load_model_from_params(generator, discriminator, save_dir)
-    logger.info("continue training at {}, rest {} epochs".format(epoch_start, epoch - epoch_start))
+    logger.info('Continue training at {}, and rest epochs {}'.format(epoch_start, epoch - epoch_start))
 
 generator.hybridize()
 discriminator.hybridize()
 
 # %% prepare training
-# history_labels = ['gloss', 'gval_loss', 'dloss', 'dval_loss']
-history_labels = ['gloss', 'dloss']
+if should_use_val:
+    history_labels = ['gloss', 'gval_loss', 'dloss', 'dval_loss']
+else:
+    history_labels = ['gloss', 'dloss']
 history = TrainingHistory(labels=history_labels)
 logger.info("Prepare training")
 loss = gluon.loss.SigmoidBinaryCrossEntropyLoss(from_sigmoid=False)
@@ -144,8 +149,9 @@ def validation(g, d, val_loader):
 # %% begin training
 logger.info("Begin training")
 for ep in tqdm.tqdm(range(epoch_start, epoch + 1),
-                    desc="Totol Progress",
+                    desc="Total Progress",
                     leave=False,
+                    initial=epoch_start,
                     unit='epoch',
                     unit_scale=True,
                     mininterval=10,
@@ -175,8 +181,9 @@ for ep in tqdm.tqdm(range(epoch_start, epoch + 1),
             err2real = loss(out, true_label)
 
             # train with fake image
-            fake_img = generator(nosise.detach())
-            out = discriminator(fake_img)
+            # detach the input, or its gradients will be computed
+            fake_img = generator(nosise)
+            out = discriminator(fake_img.detach())
             err2fake = loss(out, fake_label)
 
             err4dis = err2real + err2fake
@@ -195,20 +202,29 @@ for ep in tqdm.tqdm(range(epoch_start, epoch + 1),
 
     g_train_loss /= iter_times
     d_train_loss /= iter_times
-    history.update([g_train_loss, d_train_loss])
-    # g_val_loss, d_val_loss = validation(generator, discriminator, val_loader)
-    # history.update([g_train_loss, g_val_loss, d_train_loss, d_val_loss])
-    # logger.info("Generator[train: {}, val: {}]".format(g_train_loss, g_val_loss))
-    # logger.info("Discriminator[train: {}, val: {}]".format(d_train_loss, d_val_loss))
-    logger.info("Generator[{}], Discriminator[{}]".format(g_train_loss, d_train_loss))
-    if ep % pred_pre_epoch == 0:
+
+    # use validation set or not
+    if should_use_val:
+        g_val_loss, d_val_loss = validation(generator, discriminator, val_loader)
+        history.update([g_train_loss, g_val_loss, d_train_loss, d_val_loss])
+        logger.info("Generator[train: {}, val: {}]".format(g_train_loss, g_val_loss))
+        logger.info("Discriminator[train: {}, val: {}]".format(d_train_loss, d_val_loss))
+    else:
+        history.update([g_train_loss, d_train_loss])
+        logger.info("Generator[{}], Discriminator[{}]".format(g_train_loss, d_train_loss))
+
+    # make a prediction
+    if ep % pred_per_epoch == 0:
         fake = generator(make_noises(1))[0]
         vis.show_img(fake.transpose((1, 2, 0)), save_path='logs/pred')
+
+    # save checkpoint
     if should_save_checkpoint:
         if ep % save_per_epoch == 0:
             generator.save_parameters(os.path.join(save_dir, 'generator_{:04d}.params'.format(ep)))
             discriminator.save_parameters(os.path.join(save_dir, 'discriminator_{:04d}.params'.format(ep)))
+
+    # save history plot every epoch
     history.plot(history_labels, save_path='logs/historys')
 
-generator.save_parameters('g_params_for_rem')
 history.plot(history_labels, save_path='logs/historys')
