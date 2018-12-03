@@ -25,7 +25,7 @@ arg.add_argument('--save_checkpoint', type=bool, default=False, help='whether sa
 arg.add_argument('--save_per_epoch', type=int, default=5, help='save checkpoint every specific epochs')
 arg.add_argument('--save_dir', type=str, default='saved/params', help='check point save path')
 arg.add_argument('--cuda', type=bool, default=True, help='whether use gpu, default is True')
-arg.add_argument('--pred_pre_epoch', type=int, default=2, help='make a pred every specific epoch')
+arg.add_argument('--pred_per_epoch', type=int, default=2, help='make a pred every specific epoch')
 
 opt = arg.parse_args()
 
@@ -36,7 +36,7 @@ lr = opt.lr
 should_save_checkpoint = opt.save_checkpoint
 save_per_epoch = opt.save_per_epoch
 save_dir = opt.save_dir
-pred_pre_epoch = opt.pred_pre_epoch
+pred_per_epoch = opt.pred_pre_epoch
 
 CTX = mx.gpu() if opt.cuda else mx.cpu()
 logger.info('Will use {}'.format(CTX))
@@ -199,7 +199,7 @@ for ep in tqdm.tqdm(range(1, epoch + 1),
     # logger.info("Generator[train: {}, val: {}]".format(g_train_loss, g_val_loss))
     # logger.info("Discriminator[train: {}, val: {}]".format(d_train_loss, d_val_loss))
     logger.info("Generator[{}], Discriminator[{}]".format(g_train_loss, d_train_loss))
-    if ep % pred_pre_epoch == 0:
+    if ep % pred_per_epoch == 0:
         fake = generator(make_noises(1))[0]
         vis.show_img(fake.transpose((1, 2, 0)), save_path='logs/pred')
     if should_save_checkpoint:
@@ -208,5 +208,4 @@ for ep in tqdm.tqdm(range(1, epoch + 1),
             discriminator.save_parameters(os.path.join(save_dir, 'discriminator_{:04d}.params'.format(ep)))
     history.plot(history_labels, save_path='logs/historys')
 
-generator.save_parameters('g_params_for_rem')
 history.plot(history_labels, save_path='logs/historys')
