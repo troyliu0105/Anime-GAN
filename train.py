@@ -6,7 +6,6 @@ import mxnet as mx
 import tqdm
 from mxnet import autograd
 from mxnet import gluon
-from mxnet.gluon.data.vision import ImageRecordDataset
 from gluoncv.utils import TrainingHistory
 
 import datasets as gan_datasets
@@ -179,8 +178,9 @@ for ep in tqdm.tqdm(range(1, epoch + 1),
             err2real = loss(out, true_label)
 
             # train with fake image
-            fake_img = generator(nosise.detach())
-            out = discriminator(fake_img)
+            # detach the input, or its gradients will be computed
+            fake_img = generator(nosise)
+            out = discriminator(fake_img.detach())
             err2fake = loss(out, fake_label)
 
             err4dis = err2real + err2fake
