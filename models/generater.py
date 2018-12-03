@@ -40,8 +40,15 @@ class Generator(gluon.nn.HybridSequential):
                 gluon.nn.Activation('relu'),
                 # output (batch, 64, 128, 128)
 
-                gluon.nn.Conv2DTranspose(3, kernel_size=4, strides=2, padding=1, use_bias=False),
+                gluon.nn.Conv2DTranspose(32, kernel_size=4, strides=2, padding=1, use_bias=False),
                 gluon.nn.BatchNorm(),
-                gluon.nn.Activation('sigmoid'),
+                gluon.nn.Activation('relu'),
+
+                gluon.nn.Conv2D(32, kernel_size=3, strides=1, padding=1, use_bias=False),
+                gluon.nn.BatchNorm(),
+                gluon.nn.Activation('relu'),
+
+                gluon.nn.Conv2D(3, kernel_size=3, strides=1, padding=1, use_bias=False),
+                gluon.nn.Activation('tanh'),
                 # output (batch, 3, 256, 256)
             )

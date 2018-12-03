@@ -6,7 +6,7 @@ _saved_times = 0
 
 
 def trans_array_to_image(arr: nd.NDArray):
-    arr = arr * 255
+    arr = (arr + 1.) * 127.5
     return arr.asnumpy().astype('uint8')
 
 

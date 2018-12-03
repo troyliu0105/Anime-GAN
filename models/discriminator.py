@@ -10,36 +10,38 @@ class Discriminator(gluon.nn.HybridSequential):
             self.add(
                 gluon.nn.Conv2D(64, kernel_size=4, strides=2, padding=1, use_bias=False),
                 gluon.nn.BatchNorm(),
-                gluon.nn.Activation('relu'),
+                gluon.nn.LeakyReLU(0.2),
                 # output (batch, 64, 128, 128)
 
                 gluon.nn.Conv2D(64, kernel_size=4, strides=2, padding=1, use_bias=False),
                 gluon.nn.BatchNorm(),
-                gluon.nn.Activation('relu'),
+                gluon.nn.LeakyReLU(0.2),
                 # output (batch, 64, 64, 64)
 
                 gluon.nn.Conv2D(128, kernel_size=4, strides=2, padding=1, use_bias=False),
                 gluon.nn.BatchNorm(),
-                gluon.nn.Activation('relu'),
+                gluon.nn.LeakyReLU(0.2),
                 # output (batch, 128, 32, 32)
 
                 gluon.nn.Conv2D(256, kernel_size=4, strides=2, padding=1, use_bias=False),
                 gluon.nn.BatchNorm(),
-                gluon.nn.Activation('relu'),
+                gluon.nn.LeakyReLU(0.2),
                 # output (batch, 256, 16, 16)
 
                 gluon.nn.Conv2D(512, kernel_size=4, strides=2, padding=1, use_bias=False),
                 gluon.nn.BatchNorm(),
-                gluon.nn.Activation('relu'),
+                gluon.nn.LeakyReLU(0.2),
                 # output (batch, 512, 8, 8)
 
                 gluon.nn.Conv2D(512, kernel_size=4, strides=2, padding=1, use_bias=False),
                 gluon.nn.BatchNorm(),
-                gluon.nn.Activation('relu'),
+                gluon.nn.LeakyReLU(0.2),
                 # output (batch, 512, 4, 4)
 
                 gluon.nn.Conv2D(1, kernel_size=4, strides=2, padding=0, use_bias=False),
                 # gluon.nn.BatchNorm(),
                 # gluon.nn.Activation('relu'),
                 # output (batch, 2, 1, 1)
+
+                gluon.nn.Flatten()
             )
