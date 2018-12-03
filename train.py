@@ -9,7 +9,7 @@ from mxnet import gluon
 from mxnet.gluon.data.vision import ImageRecordDataset
 from gluoncv.utils import TrainingHistory
 
-from datasets import load_face, load_rem
+import datasets as gan_datasets
 from utils import vis
 import models
 
@@ -27,6 +27,7 @@ arg.add_argument('--save_dir', type=str, default='saved/params', help='check poi
 arg.add_argument('--cuda', type=bool, default=True, help='whether use gpu, default is True')
 arg.add_argument('--pred_per_epoch', type=int, default=2, help='make a pred every specific epoch')
 arg.add_argument('--validation', type=bool, default=False, help='whether use validation set, default: False')
+arg.add_argument('--dataset', type=str, default='rem', help='rem, miku, face')
 
 opt = arg.parse_args()
 
@@ -39,6 +40,8 @@ save_per_epoch = opt.save_per_epoch
 save_dir = opt.save_dir
 pred_per_epoch = opt.pred_pre_epoch
 should_use_val = opt.validation
+dataset = opt.dataset
+dataset_loader = getattr(gan_datasets, 'load_{}'.format(dataset))
 
 CTX = mx.gpu() if opt.cuda else mx.cpu()
 logger.info('Will use {}'.format(CTX))
@@ -59,9 +62,8 @@ tfs_val = gluon.data.vision.transforms.Compose([
     # gluon.data.vision.transforms.ToTensor()
 ])
 
-train_set, val_set = load_rem()
-rem_face_set = ImageRecordDataset('rem_face_dataset.rec')
-train_loader = gluon.data.DataLoader(rem_face_set.transform_first(tfs_train),
+train_set, val_set = dataset_loader()
+train_loader = gluon.data.DataLoader(train_set.transform_first(tfs_train),
                                      batch_size=batch_size, shuffle=True,
                                      last_batch='rollover', num_workers=4, pin_memory=True)
 val_loader = gluon.data.DataLoader(val_set.transform_first(tfs_val),
