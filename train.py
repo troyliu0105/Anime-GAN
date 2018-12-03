@@ -32,6 +32,7 @@ opt = arg.parse_args()
 
 # %% define parameters
 epoch = opt.epoch
+epoch_start = 0
 batch_size = opt.batch
 lr = opt.lr
 should_save_checkpoint = opt.save_checkpoint
@@ -77,7 +78,8 @@ discriminator.initialize(init=mx.init.Normal(0.02), ctx=CTX)
 if getattr(opt, 'continue'):
     import utils
 
-    utils.load_model_from_params(generator, discriminator, save_dir)
+    epoch_start = utils.load_model_from_params(generator, discriminator, save_dir)
+    logger.info('Continue training at {}, and rest epochs {}'.format(epoch_start, epoch - epoch_start))
 
 generator.hybridize()
 discriminator.hybridize()
@@ -146,9 +148,10 @@ def validation(g, d, val_loader):
 
 # %% begin training
 logger.info("Begin training")
-for ep in tqdm.tqdm(range(1, epoch + 1),
+for ep in tqdm.tqdm(range(epoch_start, epoch + 1),
                     desc="Total Progress",
                     leave=False,
+                    initial=epoch_start,
                     unit='epoch',
                     unit_scale=True,
                     mininterval=10,
