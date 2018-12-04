@@ -93,7 +93,7 @@ history = TrainingHistory(labels=history_labels)
 logger.info("Prepare training")
 loss = gluon.loss.SigmoidBinaryCrossEntropyLoss(from_sigmoid=False)
 trainer_gen = gluon.Trainer(generator.collect_params(), optimizer='adam', optimizer_params={
-    'learning_rate': lr * 2,
+    'learning_rate': lr,
     'beta1': 0.5
     # 'momentum': 0.9,
     # 'wd': 0.00001
