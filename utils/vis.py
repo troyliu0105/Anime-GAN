@@ -5,6 +5,8 @@ import os
 
 def _last_save_num(save_path):
     items = sorted([item.name for item in os.scandir(save_path) if item.name.endswith('jpg')])
+    if len(items) == 0:
+        return 0
     return int(items[-1].split('.')[0])
 
 

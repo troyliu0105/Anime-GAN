@@ -149,6 +149,7 @@ def validation(g, d, val_loader):
 # %% begin training
 logger.info("Begin training")
 for ep in tqdm.tqdm(range(epoch_start, epoch + 1),
+                    total=epoch,
                     desc="Total Progress",
                     leave=False,
                     initial=epoch_start,
