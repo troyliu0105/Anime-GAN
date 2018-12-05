@@ -6,6 +6,7 @@ import mxnet as mx
 import tqdm
 from mxnet import autograd
 from mxnet import gluon
+from mxnet.gluon.data.vision.datasets import ImageRecordDataset
 from gluoncv.utils import TrainingHistory
 
 import datasets as gan_datasets
@@ -16,11 +17,11 @@ mx.random.seed(5)
 logger.basicConfig(level=logger.INFO, filename='logs/train_loss.log')
 
 arg = argparse.ArgumentParser(description="training parameters")
-arg.add_argument('--lr', type=float, default=0.0001, help='learning rate')
-arg.add_argument('--batch', type=int, default=8, help='batch size')
+arg.add_argument('--lr', type=float, default=0.001, help='learning rate')
+arg.add_argument('--batch', type=int, default=16, help='batch size')
 arg.add_argument('--epoch', type=int, default=500, help='training epochs')
 arg.add_argument('--continue', type=bool, default=True, help='should continue with last checkpoint')
-arg.add_argument('--save_checkpoint', type=bool, default=False, help='whether save checkpoint')
+arg.add_argument('--save_checkpoint', type=bool, default=True, help='whether save checkpoint')
 arg.add_argument('--save_per_epoch', type=int, default=5, help='save checkpoint every specific epochs')
 arg.add_argument('--save_dir', type=str, default='saved/params', help='check point save path')
 arg.add_argument('--cuda', type=bool, default=True, help='whether use gpu, default is True')
@@ -50,20 +51,20 @@ logger.info('Will use {}'.format(CTX))
 logger.info("Prepare data")
 # noinspection PyTypeChecker
 tfs_train = gluon.data.vision.transforms.Compose([
-    gluon.data.vision.transforms.Resize(size=(256, 256), interpolation=1),
-    gluon.data.vision.transforms.RandomFlipLeftRight(),
+    gluon.data.vision.transforms.Resize(size=(256, 256), interpolation=2),
+    # gluon.data.vision.transforms.RandomFlipLeftRight(),
     # gluon.data.vision.transforms.RandomSaturation(0.05),
     # gluon.data.vision.transforms.ToTensor()
 ])
 
 # noinspection PyTypeChecker
 tfs_val = gluon.data.vision.transforms.Compose([
-    gluon.data.vision.transforms.Resize(size=(256, 256), interpolation=1),
+    gluon.data.vision.transforms.Resize(size=(256, 256), interpolation=2),
     # gluon.data.vision.transforms.ToTensor()
 ])
 
 train_set, val_set = dataset_loader()
-train_loader = gluon.data.DataLoader(train_set.transform_first(tfs_train),
+train_loader = gluon.data.DataLoader(ImageRecordDataset('rem_face_dataset.rec').transform_first(tfs_train),
                                      batch_size=batch_size, shuffle=True,
                                      last_batch='rollover', num_workers=4, pin_memory=True)
 val_loader = gluon.data.DataLoader(val_set.transform_first(tfs_val),
@@ -71,7 +72,7 @@ val_loader = gluon.data.DataLoader(val_set.transform_first(tfs_val),
                                    last_batch='rollover', num_workers=2, pin_memory=True)
 
 # %% define models
-generator = models.make_gen()
+generator = models.make_gen('v2')
 discriminator = models.make_dis()
 generator.initialize(init=mx.init.Normal(0.02), ctx=CTX)
 discriminator.initialize(init=mx.init.Normal(0.02), ctx=CTX)
@@ -92,10 +93,12 @@ else:
 history = TrainingHistory(labels=history_labels)
 logger.info("Prepare training")
 loss = gluon.loss.SigmoidBinaryCrossEntropyLoss(from_sigmoid=False)
+scheduler = mx.lr_scheduler.MultiFactorScheduler(step=[100, 150, 170, 200, 300, 310, 320], factor=0.5, base_lr=lr)
 trainer_gen = gluon.Trainer(generator.collect_params(), optimizer='adam', optimizer_params={
     'learning_rate': lr,
     'beta1': 0.5
-    # 'momentum': 0.9,
+    # 'momentum': 0.25,
+    # 'lr_scheduler': scheduler
     # 'wd': 0.00001
 })
 trainer_dis = gluon.Trainer(discriminator.collect_params(), optimizer='adam', optimizer_params={
@@ -107,6 +110,8 @@ true_label = mx.nd.ones((batch_size,), ctx=CTX)
 fake_label = mx.nd.zeros((batch_size,), ctx=CTX)
 
 make_noises = lambda bs: mx.nd.random_normal(0, 1, shape=(bs, 512, 1, 1), ctx=CTX, dtype='float32')
+pred_noise = make_noises(1)
+mx.nd.save('pred_noise', pred_noise)
 
 
 def validation(g, d, val_loader):
@@ -217,7 +222,9 @@ for ep in tqdm.tqdm(range(epoch_start, epoch + 1),
     # make a prediction
     if ep % pred_per_epoch == 0:
         fake = generator(make_noises(1))[0]
+        unique_fake = generator(pred_noise)[0]
         vis.show_img(fake.transpose((1, 2, 0)), save_path='logs/pred')
+        vis.show_img(unique_fake.transpose((1, 2, 0)), save_path='logs/pred/unique')
 
     # save checkpoint
     if should_save_checkpoint:
