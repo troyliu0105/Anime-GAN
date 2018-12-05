@@ -40,19 +40,21 @@ def _download(url, digest):
 
 
 def _make_datasets(data_desc):
-    # download train set
-    train_urls = data_desc['train']
-    train_path = _download(train_urls['rec'][0], train_urls['rec'][1])
-    _download(train_urls['idx'][0], train_urls['idx'][1])
-    _download(train_urls['lst'][0], train_urls['lst'][1])
-
-    # download validation set
-    val_urls = data_desc['val']
-    val_path = _download(val_urls['rec'][0], val_urls['rec'][1])
-    _download(val_urls['idx'][0], val_urls['idx'][1])
-    _download(val_urls['lst'][0], val_urls['lst'][1])
-    train = ImageRecordDataset(train_path, flag=1)
-    val = ImageRecordDataset(val_path, flag=1)
+    train, val = None, None
+    if 'train' in data_desc:
+        # download train set
+        train_urls = data_desc['train']
+        train_path = _download(train_urls['rec'][0], train_urls['rec'][1])
+        _download(train_urls['idx'][0], train_urls['idx'][1])
+        _download(train_urls['lst'][0], train_urls['lst'][1])
+        train = ImageRecordDataset(train_path, flag=1)
+    if 'val' in data_desc:
+        # download validation set
+        val_urls = data_desc['val']
+        val_path = _download(val_urls['rec'][0], val_urls['rec'][1])
+        _download(val_urls['idx'][0], val_urls['idx'][1])
+        _download(val_urls['lst'][0], val_urls['lst'][1])
+        val = ImageRecordDataset(val_path, flag=1)
     return train, val
 
 
@@ -167,6 +169,26 @@ def load_rem():
             'lst': (
                 'https://gitlab.com/troyliu0105/datasetrepo/raw/master/gan/pics/rem_dataset_val.lst',
                 '6171d5408e5d2abc0ae263bc655b41e7'
+            )
+        }
+    }
+    return _make_datasets(data_desc)
+
+
+def load_rem_face():
+    data_desc = {
+        'train': {
+            'rec': (
+                'https://gitlab.com/troyliu0105/datasetrepo/raw/master/gan/face/rem_face_dataset.rec',
+                'cbecdfea057ebeddaaafdba554047537'
+            ),
+            'idx': (
+                'https://gitlab.com/troyliu0105/datasetrepo/raw/master/gan/face/rem_face_dataset.idx',
+                'aba5c91aa62f8e73ac3795343e20e242'
+            ),
+            'lst': (
+                'https://gitlab.com/troyliu0105/datasetrepo/raw/master/gan/face/rem_face_dataset.lst',
+                'efb16f6cec5630c365ef82bc9daee04a'
             )
         }
     }
