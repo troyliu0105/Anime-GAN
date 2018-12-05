@@ -1,6 +1,7 @@
+import os
 from matplotlib import pyplot as plt
 from mxnet import nd
-import os
+import numpy as np
 
 
 def _last_save_num(save_path):
@@ -14,7 +15,9 @@ _saved_times = 0
 
 
 def trans_array_to_image(arr: nd.NDArray):
-    arr = (arr + 1.) * 127.5
+    arr = arr * 0.5 + 0.5
+    arr *= 255
+    arr = nd.clip(arr, a_min=0, a_max=255)
     return arr.asnumpy().astype('uint8')
 
 

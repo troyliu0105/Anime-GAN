@@ -127,10 +127,6 @@ class GeneratorV2(HybridSequential):
 
                 InceptionBlock(32, 16),
 
-                gluon.nn.Conv2DTranspose(16, kernel_size=4, strides=2, padding=1, use_bias=False),
-                gluon.nn.BatchNorm(),
-                gluon.nn.Activation('relu'),
-
-                Conv2D(3, 1, 1),
+                gluon.nn.Conv2DTranspose(3, kernel_size=4, strides=2, padding=1, use_bias=False),
                 Activation('tanh')
             )
