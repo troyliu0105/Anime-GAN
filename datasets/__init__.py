@@ -180,15 +180,15 @@ def load_rem_face():
         'train': {
             'rec': (
                 'https://gitlab.com/troyliu0105/datasetrepo/raw/master/gan/face/rem_face_dataset.rec',
-                'cbecdfea057ebeddaaafdba554047537'
+                '521ba239f72547b4fe62af9edb8c7893'
             ),
             'idx': (
                 'https://gitlab.com/troyliu0105/datasetrepo/raw/master/gan/face/rem_face_dataset.idx',
-                'aba5c91aa62f8e73ac3795343e20e242'
+                '73a5e4b7f0eaaaf77bfcb30af8f2c321'
             ),
             'lst': (
                 'https://gitlab.com/troyliu0105/datasetrepo/raw/master/gan/face/rem_face_dataset.lst',
-                'efb16f6cec5630c365ef82bc9daee04a'
+                'c7585ac8349b6ecc6d85259d22ad27a4'
             )
         }
     }
