@@ -25,12 +25,21 @@ class WasserSteinInit(Initializer):
         arr[:] = mx.nd.random_normal(1.0, 0.02, shape=arr.shape)
 
 
+def weight_init(layers):
+    for layer in layers:
+        classname = layer.__class__.__name__
+        if classname.find('Conv') != -1:
+            layer.weight.set_data(mx.ndarray.random.normal(0.0, 0.02, shape=layer.weight.data().shape))
+        elif classname.find('BatchNorm') != -1:
+            layer.gamma.set_data(mx.ndarray.random.normal(1.0, 0.02, shape=layer.gamma.data().shape))
+            layer.beta.set_data(mx.ndarray.zeros(shape=layer.beta.data().shape))
+
+
 def clip_dis(d_model: HybridBlock, clip_size):
     for param_name in d_model.collect_params():
-        if param_name.find('weight') != -1:
-            param = d_model.collect_params(param_name)[param_name]
-            cliped_param = mx.nd.clip(param.data(), a_min=-clip_size, a_max=clip_size)
-            param.set_data(cliped_param)
+        param = d_model.collect_params(param_name)[param_name]
+        cliped_param = mx.nd.clip(param.data(), a_min=-clip_size, a_max=clip_size)
+        param.set_data(cliped_param)
 
 
 def wasser_penalty(dis_model, real, fake, penalty_rate, ctx=None):

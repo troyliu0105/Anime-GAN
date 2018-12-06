@@ -69,7 +69,7 @@ tfs_val = gluon.data.vision.transforms.Compose([
 ])
 
 train_set, val_set = dataset_loader()
-train_loader = gluon.data.DataLoader(ImageRecordDataset('rem_face_dataset.rec').transform_first(tfs_train),
+train_loader = gluon.data.DataLoader(train_set.transform_first(tfs_train),
                                      batch_size=batch_size, shuffle=True,
                                      last_batch='rollover', num_workers=4, pin_memory=True)
 if val_set:
@@ -80,9 +80,10 @@ if val_set:
 # %% define models
 generator = models.make_gen('v1')
 discriminator = models.make_dis()
-generator.initialize(init=WasserSteinInit(), ctx=CTX)
-discriminator.initialize(init=WasserSteinInit(), ctx=CTX)
+generator.initialize(init=mx.init.Normal(0.02), ctx=CTX)
+discriminator.initialize(init=mx.init.Normal(0.02), ctx=CTX)
 discriminator(mx.nd.random_uniform(shape=(1, 3, 256, 256), ctx=CTX))
+generator(mx.nd.random_uniform(shape=(1, 512, 1, 1)))
 if getattr(opt, 'continue'):
     import utils
 
@@ -91,9 +92,7 @@ if getattr(opt, 'continue'):
     logger.info('Continue training at {}, and rest epochs {}'.format(epoch_start, epoch - epoch_start))
 
 generator.hybridize()
-
-
-# discriminator.hybridize()
+discriminator.hybridize()
 
 
 def make_noise(bs):
@@ -106,7 +105,6 @@ if should_use_val:
 else:
     history_labels = ['gloss', 'dloss']
 history = TrainingHistory(labels=history_labels)
-loss = WasserSteinLoss()
 logger.info("Prepare training")
 # scheduler = mx.lr_scheduler.MultiFactorScheduler(step=[100, 150, 170, 200, 300, 310, 320], factor=0.5, base_lr=lr)
 trainer_gen = gluon.Trainer(generator.collect_params(), optimizer='rmsprop', optimizer_params={
@@ -198,22 +196,13 @@ for ep in tqdm.tqdm(range(epoch_start, epoch + 1),
             with autograd.record():
                 # train with real image
                 err2real = discriminator(data).mean()
-                err2real.backward(fake_label)
-            # trainer_dis.step(1)
 
-            fake_img = generator(noise)
-            with autograd.record():
+                fake_img = generator(noise)
                 # train with fake image
                 # detach the input, or its gradients will be computed
                 err2fake = discriminator(fake_img.detach()).mean()
-                err2fake.backward(true_label)
-            # trainer_dis.step(1)
 
-            with autograd.record():
-                penalty = wasser_penalty(discriminator, data, fake_img, 10, ctx=CTX)
-                penalty.backward(retain_graph=True)
-            with autograd.record():
-                err4dis = err2fake - err2real + penalty
+                err4dis = err2real - err2fake
                 err4dis.backward()
             trainer_dis.step(1)
             d_train_loss += err4dis.asscalar()
