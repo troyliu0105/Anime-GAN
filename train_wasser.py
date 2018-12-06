@@ -14,7 +14,7 @@ import datasets as gan_datasets
 import models
 from utils import vis
 from models.WasserStein import clip_dis, wasser_penalty
-from models.WasserStein import WasserSteinInit
+from models.WasserStein import WasserSteinInit, WasserSteinLoss
 
 mx.random.seed(5)
 logger.basicConfig(level=logger.INFO, filename='logs/w_train_loss.log')
@@ -69,7 +69,7 @@ tfs_val = gluon.data.vision.transforms.Compose([
 ])
 
 train_set, val_set = dataset_loader()
-train_loader = gluon.data.DataLoader(train_set.transform_first(tfs_train),
+train_loader = gluon.data.DataLoader(ImageRecordDataset('rem_face_dataset.rec').transform_first(tfs_train),
                                      batch_size=batch_size, shuffle=True,
                                      last_batch='rollover', num_workers=4, pin_memory=True)
 if val_set:
@@ -82,6 +82,7 @@ generator = models.make_gen('v1')
 discriminator = models.make_dis()
 generator.initialize(init=WasserSteinInit(), ctx=CTX)
 discriminator.initialize(init=WasserSteinInit(), ctx=CTX)
+discriminator(mx.nd.random_uniform(shape=(1, 3, 256, 256), ctx=CTX))
 if getattr(opt, 'continue'):
     import utils
 
@@ -90,7 +91,9 @@ if getattr(opt, 'continue'):
     logger.info('Continue training at {}, and rest epochs {}'.format(epoch_start, epoch - epoch_start))
 
 generator.hybridize()
-discriminator.hybridize()
+
+
+# discriminator.hybridize()
 
 
 def make_noise(bs):
@@ -103,6 +106,7 @@ if should_use_val:
 else:
     history_labels = ['gloss', 'dloss']
 history = TrainingHistory(labels=history_labels)
+loss = WasserSteinLoss()
 logger.info("Prepare training")
 # scheduler = mx.lr_scheduler.MultiFactorScheduler(step=[100, 150, 170, 200, 300, 310, 320], factor=0.5, base_lr=lr)
 trainer_gen = gluon.Trainer(generator.collect_params(), optimizer='rmsprop', optimizer_params={
@@ -114,7 +118,7 @@ trainer_dis = gluon.Trainer(discriminator.collect_params(), optimizer='rmsprop',
     'epsilon': 1e-11
 })
 true_label = mx.nd.ones((batch_size,), ctx=CTX)
-fake_label = mx.nd.zeros((batch_size,), ctx=CTX)
+fake_label = true_label * -1
 
 pred_noise = make_noise(1)
 mx.nd.save('pred_noise', pred_noise)
@@ -188,26 +192,34 @@ for ep in tqdm.tqdm(range(epoch_start, epoch + 1),
         noise = make_noise(bs)
         data = data.as_in_context(CTX)
         # begin training discriminator
-        with autograd.record():
+        if dis_iter_time < 5:
             d_iter_times += 1
             dis_iter_time += 1
-            # train with real image
-            err2real = discriminator(data).mean()
+            with autograd.record():
+                # train with real image
+                err2real = discriminator(data).mean()
+                err2real.backward(fake_label)
+            # trainer_dis.step(1)
 
-            # train with fake image
-            # detach the input, or its gradients will be computed
             fake_img = generator(noise)
-            err2fake = discriminator(fake_img.detach()).mean()
+            with autograd.record():
+                # train with fake image
+                # detach the input, or its gradients will be computed
+                err2fake = discriminator(fake_img.detach()).mean()
+                err2fake.backward(true_label)
+            # trainer_dis.step(1)
 
-            # penalty = wasser_penalty(discriminator, data, fake_img, 10, ctx=CTX)
-            # err4dis = -(err2real - err2fake) + penalty
-            err4dis = -(err2real - err2fake)
-        err4dis.backward()
-        trainer_dis.step(bs)
-        d_train_loss += err4dis.asscalar()
+            with autograd.record():
+                penalty = wasser_penalty(discriminator, data, fake_img, 10, ctx=CTX)
+                penalty.backward(retain_graph=True)
+            with autograd.record():
+                err4dis = err2fake - err2real + penalty
+                err4dis.backward()
+            trainer_dis.step(1)
+            d_train_loss += err4dis.asscalar()
 
         # clip the discriminator
-        clip_dis(discriminator, 0.02)
+        # clip_dis(discriminator, 0.02)
 
         # begin training generator
         if dis_iter_time == 5:
@@ -215,10 +227,10 @@ for ep in tqdm.tqdm(range(epoch_start, epoch + 1),
             with autograd.record():
                 g_iter_times += 1
                 fake_img = generator(noise)
-                err4gen = -discriminator(fake_img).mean()
+                err4gen = discriminator(fake_img).mean()
             err4gen.backward()
             trainer_gen.step(bs)
-            g_train_loss += err4gen.asscalar()
+            g_train_loss += -err4gen.asscalar()
 
     g_train_loss /= g_iter_times
     d_train_loss /= d_iter_times
