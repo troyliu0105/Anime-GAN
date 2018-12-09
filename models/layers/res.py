@@ -6,31 +6,37 @@ from mxnet.gluon.nn import Activation
 from mxnet.gluon.nn import GlobalAvgPool2D
 from mxnet.gluon.nn import Flatten
 from mxnet.gluon.nn import Dense
+from mxnet.gluon.nn import LeakyReLU
 
 
 class ResidualBlock(HybridBlock):
-    def __init__(self, channels, in_channels, downsample=False, use_se=True, se_divide=2, **kwargs):
+    def __init__(self, channels, in_channels, downsample=False, use_se=True, se_divide=2, strides=None, **kwargs):
         super(ResidualBlock, self).__init__(**kwargs)
         self.channels = channels
         self.in_channels = in_channels
         self.use_se = use_se
         self.se_divide = se_divide
-
+        if strides:
+            s1 = strides[0]
+            s2 = strides[1]
+        else:
+            s1 = 1
+            s2 = 1
         with self.name_scope():
             self.body = HybridSequential(prefix='body-')
             with self.body.name_scope():
                 self.body.add(
-                    Conv2D(channels, kernel_size=3, padding=1, in_channels=in_channels),
+                    Conv2D(channels, kernel_size=3, strides=s1, padding=1, in_channels=in_channels, use_bias=False),
                     BatchNorm(axis=1, in_channels=channels),
-                    Activation('relu'),
-                    Conv2D(channels, kernel_size=3, padding=1, in_channels=channels),
+                    LeakyReLU(0.2),
+                    Conv2D(channels, kernel_size=3, strides=s2, padding=1, in_channels=channels, use_bias=False),
                     BatchNorm(axis=1, in_channels=channels)
                 )
             if downsample:
                 self.downsample = HybridSequential(prefix='downsample-')
                 with self.downsample.name_scope():
                     self.downsample.add(
-                        Conv2D(channels, kernel_size=1, in_channels=in_channels),
+                        Conv2D(channels, kernel_size=3, strides=2, padding=1, in_channels=in_channels, use_bias=False),
                         BatchNorm(axis=1, in_channels=channels)
                     )
             else:
@@ -39,7 +45,7 @@ class ResidualBlock(HybridBlock):
             with self.out_act.name_scope():
                 self.out_act.add(
                     BatchNorm(axis=1),
-                    Activation('relu'),
+                    LeakyReLU(0.2),
                 )
 
             if self.use_se:

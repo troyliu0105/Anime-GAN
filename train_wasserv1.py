@@ -7,28 +7,29 @@ import tqdm
 from mxnet import autograd
 from mxnet import gluon
 from mxnet.gluon.data.vision.datasets import ImageRecordDataset
-from mxnet.contrib.autograd import grad
-from gluoncv.utils import TrainingHistory, makedirs
+from gluoncv.utils import makedirs
 
 import datasets as gan_datasets
 import models
-from utils import vis
+from utils import vis, get_cpus, TrainingHistory
 from models.WasserStein import clip_dis, wasser_penalty
-from models.WasserStein import WasserSteinInit, WasserSteinLoss
+from models.WasserStein import weight_init
 
 mx.random.seed(5)
-logger.basicConfig(level=logger.INFO, filename='logs/w_train_loss.log')
+logger.basicConfig(level=logger.INFO, filename='logs/train_loss-w1.log')
 
 arg = argparse.ArgumentParser(description="training parameters")
 arg.add_argument('--lr', type=float, default=0.00005, help='learning rate')
-arg.add_argument('--batch', type=int, default=16, help='batch size')
-arg.add_argument('--epoch', type=int, default=500, help='training epochs')
+arg.add_argument('--nz', type=int, default=256, help='z vector dimension')
+arg.add_argument('--imageSize', type=int, default=256, help='image size')
+arg.add_argument('--batch', type=int, default=8, help='batch size')
+arg.add_argument('--epoch', type=int, default=5000000, help='training epochs')
 arg.add_argument('--continue', type=bool, default=True, help='should continue with last checkpoint')
 arg.add_argument('--save_checkpoint', type=bool, default=True, help='whether save checkpoint')
-arg.add_argument('--save_per_epoch', type=int, default=5, help='save checkpoint every specific epochs')
-arg.add_argument('--save_dir', type=str, default='saved/params', help='check point save path')
+arg.add_argument('--save_per_epoch', type=int, default=500, help='save checkpoint every specific epochs')
+arg.add_argument('--save_dir', type=str, default='saved/params-w1', help='check point save path')
 arg.add_argument('--cuda', action='store_true', default=False, help='whether use gpu, default is True')
-arg.add_argument('--pred_per_epoch', type=int, default=2, help='make a pred every specific epoch')
+arg.add_argument('--pred_per_gen', type=int, default=500, help='make a pred generator update')
 arg.add_argument('--validation', type=bool, default=False, help='whether use validation set, default: False')
 arg.add_argument('--dataset', type=str, default='rem', help='rem, miku, face, rem_face')
 
@@ -39,10 +40,12 @@ epoch = opt.epoch
 epoch_start = 0
 batch_size = opt.batch
 lr = opt.lr
+nz = opt.nz
+imageSize = opt.imageSize
 should_save_checkpoint = opt.save_checkpoint
 save_per_epoch = opt.save_per_epoch
 save_dir = opt.save_dir
-pred_per_epoch = opt.pred_per_epoch
+pred_per_gen = opt.pred_per_gen
 should_use_val = opt.validation
 dataset = opt.dataset
 dataset_loader = getattr(gan_datasets, 'load_{}'.format(dataset))
@@ -54,16 +57,16 @@ logger.info('Will use {}'.format(CTX))
 logger.info("Prepare data")
 # noinspection PyTypeChecker
 tfs_train = gluon.data.vision.transforms.Compose([
-    gluon.data.vision.transforms.Resize(size=(256, 256), interpolation=2),
+    gluon.data.vision.transforms.Resize(size=(imageSize, imageSize), interpolation=2),
     # gluon.data.vision.transforms.RandomFlipLeftRight(),
-    # gluon.data.vision.transforms.RandomSaturation(0.05),
+    gluon.data.vision.transforms.RandomSaturation(0.001),
     gluon.data.vision.transforms.ToTensor(),
     gluon.data.vision.transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5))
 ])
 
 # noinspection PyTypeChecker
 tfs_val = gluon.data.vision.transforms.Compose([
-    gluon.data.vision.transforms.Resize(size=(256, 256), interpolation=2),
+    gluon.data.vision.transforms.Resize(size=(imageSize, imageSize), interpolation=2),
     gluon.data.vision.transforms.ToTensor(),
     gluon.data.vision.transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5))
 ])
@@ -71,19 +74,21 @@ tfs_val = gluon.data.vision.transforms.Compose([
 train_set, val_set = dataset_loader()
 train_loader = gluon.data.DataLoader(train_set.transform_first(tfs_train),
                                      batch_size=batch_size, shuffle=True,
-                                     last_batch='rollover', num_workers=4, pin_memory=True)
+                                     last_batch='rollover', num_workers=get_cpus(), pin_memory=True)
 if val_set:
     val_loader = gluon.data.DataLoader(val_set.transform_first(tfs_val),
                                        batch_size=batch_size, shuffle=False,
-                                       last_batch='rollover', num_workers=2, pin_memory=True)
+                                       last_batch='rollover', num_workers=get_cpus(), pin_memory=True)
 
 # %% define models
-generator = models.make_gen('v1')
-discriminator = models.make_dis()
+generator = models.make_generic_gen(imageSize, nz=nz, nc=3, ngf=64, n_extra_layers=3)
+discriminator = models.make_generic_dis(imageSize, nc=3, ndf=64, n_extra_layers=3)
 generator.initialize(init=mx.init.Normal(0.02), ctx=CTX)
 discriminator.initialize(init=mx.init.Normal(0.02), ctx=CTX)
 discriminator(mx.nd.random_uniform(shape=(1, 3, 256, 256), ctx=CTX))
-generator(mx.nd.random_uniform(shape=(1, 512, 1, 1)))
+generator(mx.nd.random_uniform(shape=(1, nz, 1, 1), ctx=CTX))
+weight_init(discriminator)
+weight_init(generator)
 if getattr(opt, 'continue'):
     import utils
 
@@ -96,7 +101,7 @@ discriminator.hybridize()
 
 
 def make_noise(bs):
-    return mx.nd.random_normal(0, 1, shape=(bs, 512, 1, 1), ctx=CTX, dtype='float32')
+    return mx.nd.random_normal(0, 1, shape=(bs, nz, 1, 1), ctx=CTX, dtype='float32')
 
 
 # %% prepare training
@@ -113,15 +118,15 @@ trainer_gen = gluon.Trainer(generator.collect_params(), optimizer='rmsprop', opt
 })
 trainer_dis = gluon.Trainer(discriminator.collect_params(), optimizer='rmsprop', optimizer_params={
     'learning_rate': lr,
-    'epsilon': 1e-11
+    'epsilon': 1e-11,
+    'clip_weights': 0.01
 })
-true_label = mx.nd.ones((batch_size,), ctx=CTX)
-fake_label = true_label * -1
 
-pred_noise = make_noise(1)
+pred_noise = make_noise(16)
 mx.nd.save('pred_noise', pred_noise)
 
 
+# don't use it!!!!!!!!!!
 def validation(g, d, val_loader):
     g_val_loss = 0.0
     d_val_loss = 0.0
@@ -138,7 +143,7 @@ def validation(g, d, val_loader):
         iter_times += 1
         bs = len(data)
         nosise = make_noise(bs)
-        data = data.as_in_context(CTX).transpose((0, 3, 1, 2)).astype('float32') / 127.5 - 1.
+        data = data.as_in_context(CTX)
         with autograd.predict_mode():
             # loss for d
             err2real = d(data).mean()
@@ -148,7 +153,7 @@ def validation(g, d, val_loader):
 
             penalty = wasser_penalty(d, data, fake_img, 10, ctx=CTX)
 
-            err4sucker = -(err2real - err2fake) + penalty
+            err4sucker = (err2real - err2fake)
             d_val_loss += err4sucker.asscalar()
 
             # loss for g
@@ -160,7 +165,14 @@ def validation(g, d, val_loader):
 
 # %% begin training
 logger.info("Begin training")
-dis_iter_time = 0
+dis_update_time = 0
+gen_update_time = 0
+iter4G = 5
+
+g_train_loss = 0.0
+d_train_loss = 0.0
+g_iter_times = 0
+d_iter_times = 0
 for ep in tqdm.tqdm(range(epoch_start, epoch + 1),
                     total=epoch,
                     desc="Total Progress",
@@ -170,12 +182,7 @@ for ep in tqdm.tqdm(range(epoch_start, epoch + 1),
                     unit_scale=True,
                     mininterval=10,
                     maxinterval=100,
-                    dynamic_ncols=True
-                    ):
-    g_train_loss = 0.0
-    d_train_loss = 0.0
-    g_iter_times = 0
-    d_iter_times = 0
+                    dynamic_ncols=True):
 
     for data, _ in tqdm.tqdm(
             train_loader,
@@ -187,71 +194,74 @@ for ep in tqdm.tqdm(range(epoch_start, epoch + 1),
             maxinterval=5,
             dynamic_ncols=True):
         bs = len(data)
-        noise = make_noise(bs)
         data = data.as_in_context(CTX)
         # begin training discriminator
-        if dis_iter_time < 5:
+        if dis_update_time < iter4G:
             d_iter_times += 1
-            dis_iter_time += 1
+            dis_update_time += 1
             with autograd.record():
                 # train with real image
-                err2real = discriminator(data).mean()
+                err2real = discriminator(data).mean(axis=0).reshape(1)
 
-                fake_img = generator(noise)
+                fake_img = generator(make_noise(bs))
                 # train with fake image
                 # detach the input, or its gradients will be computed
-                err2fake = discriminator(fake_img.detach()).mean()
+                err2fake = discriminator(fake_img.detach()).mean(axis=0).reshape(1)
 
                 err4dis = err2real - err2fake
                 err4dis.backward()
             trainer_dis.step(1)
-            d_train_loss += err4dis.asscalar()
+            d_train_loss = err4dis.asscalar()
 
+        # use clip operation in optimizer
         # clip the discriminator
-        # clip_dis(discriminator, 0.02)
+        # clip_dis(discriminator, 0.01)
 
         # begin training generator
-        if dis_iter_time == 5:
-            dis_iter_time = 0
+        if dis_update_time == iter4G:
+            dis_update_time = 0
+            gen_update_time += 1
             with autograd.record():
                 g_iter_times += 1
-                fake_img = generator(noise)
-                err4gen = discriminator(fake_img).mean()
-            err4gen.backward()
-            trainer_gen.step(bs)
-            g_train_loss += -err4gen.asscalar()
+                fake_img = generator(make_noise(bs))
+                err4gen = discriminator(fake_img).mean(axis=0).reshape(1)
+                err4gen.backward()
+            trainer_gen.step(1)
+            g_train_loss = err4gen.asscalar()
 
-    g_train_loss /= g_iter_times
-    d_train_loss /= d_iter_times
+            # use validation set or not
+            if should_use_val:
+                g_val_loss, d_val_loss = validation(generator, discriminator, val_loader)
+                history.update([g_train_loss, g_val_loss, d_train_loss, d_val_loss])
+                logger.info("Generator[train: {}, val: {}]".format(g_train_loss, g_val_loss))
+                logger.info("Discriminator[train: {}, val: {}]".format(d_train_loss, d_val_loss))
+            else:
+                history.update([g_train_loss, d_train_loss])
+                logger.info("Generator[{}], Discriminator[{}]".format(g_train_loss, d_train_loss))
 
-    # use validation set or not
-    if should_use_val:
-        g_val_loss, d_val_loss = validation(generator, discriminator, val_loader)
-        history.update([g_train_loss, g_val_loss, d_train_loss, d_val_loss])
-        logger.info("Generator[train: {}, val: {}]".format(g_train_loss, g_val_loss))
-        logger.info("Discriminator[train: {}, val: {}]".format(d_train_loss, d_val_loss))
-    else:
-        history.update([g_train_loss, d_train_loss])
-        logger.info("Generator[{}], Discriminator[{}]".format(g_train_loss, d_train_loss))
+            # make a prediction
+            if gen_update_time % pred_per_gen == 0:
+                pred_path = 'logs/pred-w1'
+                makedirs(pred_path)
 
-    # make a prediction
-    if ep % pred_per_epoch == 0:
-        fake = generator(make_noise(1))[0]
-        unique_fake = generator(pred_noise)[0]
-        pred_path = 'logs/pred'
-        pred_unique_path = os.path.join(pred_path, 'unique')
-        makedirs(pred_path)
-        makedirs(pred_unique_path)
-        vis.show_img(fake.transpose((1, 2, 0)), save_path=pred_path)
-        vis.show_img(unique_fake.transpose((1, 2, 0)), save_path=pred_unique_path)
+                pred = generator(pred_noise)
+                vis.show_img(pred.transpose((0, 2, 3, 1)), save_path=pred_path, epoch=gen_update_time)
 
-    # save checkpoint
-    if should_save_checkpoint:
-        if ep % save_per_epoch == 0:
-            generator.save_parameters(os.path.join(save_dir, 'generator_{:04d}.params'.format(ep)))
-            discriminator.save_parameters(os.path.join(save_dir, 'discriminator_{:04d}.params'.format(ep)))
+            # save checkpoint
+            if should_save_checkpoint:
+                if ep % save_per_epoch == 0:
+                    generator.save_parameters(os.path.join(save_dir, 'generator_{:04d}.params'.format(ep)))
+                    discriminator.save_parameters(os.path.join(save_dir, 'discriminator_{:04d}.params'.format(ep)))
 
-    # save history plot every epoch
-    history.plot(history_labels, save_path='logs/whistorys')
+            # save history plot every epoch
+            history.plot(save_path='logs/histories-w1')
 
-history.plot(history_labels, save_path='logs/whistorys')
+            g_train_loss = 0.0
+            d_train_loss = 0.0
+            g_iter_times = 0
+            d_iter_times = 0
+
+            if gen_update_time > 25:
+                iter4G = 5
+
+history.plot(save_path='logs/histories-w1')

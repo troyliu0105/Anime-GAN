@@ -1,7 +1,6 @@
 import mxnet as mx
 from mxnet.gluon.loss import Loss
 from mxnet.gluon.nn import HybridBlock
-from mxnet.initializer import Initializer
 
 
 class WasserSteinLoss(Loss):
@@ -11,18 +10,8 @@ class WasserSteinLoss(Loss):
 
     def hybrid_forward(self, F, pred, label):
         pred = F.reshape_like(pred, label)
-        return F.mean(F.elemwise_mul(pred, label))
-
-
-class WasserSteinInit(Initializer):
-    def _init_weight(self, name, arr):
-        arr[:] = mx.nd.random_normal(0.0, 0.02, shape=arr.shape)
-
-    def _init_beta(self, _, arr):
-        arr[:] = mx.nd.zeros_like(arr)
-
-    def _init_gamma(self, _, arr):
-        arr[:] = mx.nd.random_normal(1.0, 0.02, shape=arr.shape)
+        loss = F.mean(F.elemwise_mul(pred, label))
+        return loss
 
 
 def weight_init(layers):
