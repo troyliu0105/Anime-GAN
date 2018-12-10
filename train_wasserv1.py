@@ -22,6 +22,9 @@ arg = argparse.ArgumentParser(description="training parameters")
 arg.add_argument('--lr', type=float, default=0.00005, help='learning rate')
 arg.add_argument('--nz', type=int, default=256, help='z vector dimension')
 arg.add_argument('--imageSize', type=int, default=256, help='image size')
+arg.add_argument('--extra_layers', type=int, default=0, help='extra layers for d & g')
+arg.add_argument('--ngf', type=int, default=64)
+arg.add_argument('--ndf', type=int, default=64)
 arg.add_argument('--batch', type=int, default=8, help='batch size')
 arg.add_argument('--epoch', type=int, default=5000000, help='training epochs')
 arg.add_argument('--continue', type=bool, default=True, help='should continue with last checkpoint')
@@ -41,6 +44,9 @@ epoch_start = 0
 batch_size = opt.batch
 lr = opt.lr
 nz = opt.nz
+ngf = opt.ngf
+ndf = opt.ndf
+n_extra = opt.extra_layers
 imageSize = opt.imageSize
 should_save_checkpoint = opt.save_checkpoint
 save_per_epoch = opt.save_per_epoch
@@ -81,12 +87,12 @@ if val_set:
                                        last_batch='rollover', num_workers=get_cpus(), pin_memory=True)
 
 # %% define models
-generator = models.make_generic_gen(imageSize, nz=nz, nc=3, ngf=64, n_extra_layers=3)
-discriminator = models.make_generic_dis(imageSize, nc=3, ndf=64, n_extra_layers=3)
-generator.initialize(init=mx.init.Normal(0.02), ctx=CTX)
-discriminator.initialize(init=mx.init.Normal(0.02), ctx=CTX)
-discriminator(mx.nd.random_uniform(shape=(1, 3, 256, 256), ctx=CTX))
-generator(mx.nd.random_uniform(shape=(1, nz, 1, 1), ctx=CTX))
+generator = models.make_generic_gen(imageSize, nz=nz, nc=3, ngf=ngf, n_extra_layers=n_extra)
+discriminator = models.make_generic_dis(imageSize, nc=3, ndf=ndf, n_extra_layers=n_extra)
+generator.initialize(init=mx.init.Xavier(factor_type='in', magnitude=0.01), ctx=CTX)
+discriminator.initialize(init=mx.init.Xavier(factor_type='in', magnitude=0.01), ctx=CTX)
+discriminator(mx.nd.random_normal(shape=(1, 3, imageSize, imageSize), ctx=CTX))
+generator(mx.nd.random_normal(shape=(1, nz, 1, 1), ctx=CTX))
 weight_init(discriminator)
 weight_init(generator)
 if getattr(opt, 'continue'):
@@ -167,7 +173,7 @@ def validation(g, d, val_loader):
 logger.info("Begin training")
 dis_update_time = 0
 gen_update_time = 0
-iter4G = 5
+iter4G = 100
 
 g_train_loss = 0.0
 d_train_loss = 0.0
@@ -261,7 +267,7 @@ for ep in tqdm.tqdm(range(epoch_start, epoch + 1),
             g_iter_times = 0
             d_iter_times = 0
 
-            if gen_update_time > 25:
+            if gen_update_time > 30:
                 iter4G = 5
 
 history.plot(save_path='logs/histories-w1')
