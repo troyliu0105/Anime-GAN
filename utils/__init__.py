@@ -4,8 +4,11 @@ from .vis import TrainingHistory
 
 def get_cpus():
     import platform
-    if platform.uname().system == 'Darwin':
-        import multiprocessing
+    import multiprocessing
+    system = platform.uname().system
+    if system == 'Darwin':
         return multiprocessing.cpu_count() // 2
-    else:
+    elif system == 'Linux':
+        return multiprocessing.cpu_count()
+    elif system == 'Windows':
         return 0
