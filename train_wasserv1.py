@@ -129,7 +129,7 @@ trainer_dis = gluon.Trainer(discriminator.collect_params(), optimizer='rmsprop',
 })
 
 if os.path.exists('pred_noise'):
-    pred_noise = mx.nd.load('pred_noise')
+    pred_noise = mx.nd.load('pred_noise')[0]
 else:
     pred_noise = make_noise(batch_size)
     mx.nd.save('pred_noise', pred_noise)
