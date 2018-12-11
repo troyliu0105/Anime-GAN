@@ -4,6 +4,7 @@ import argparse
 import logging as logger
 import mxnet as mx
 import tqdm
+from functools import partial
 from mxnet import autograd
 from mxnet import gluon
 from mxnet.gluon.data.vision.datasets import ImageRecordDataset
@@ -11,8 +12,8 @@ from gluoncv.utils import makedirs
 
 import datasets as gan_datasets
 import models
-from utils import vis, get_cpus, TrainingHistory
-from models.WasserStein import clip_dis, wasser_penalty
+from utils import vis, get_cpus, TrainingHistory, make_noise
+from models.WasserStein import clip_dis
 from models.WasserStein import weight_init
 
 mx.random.seed(5)
@@ -37,6 +38,7 @@ arg.add_argument('--validation', type=bool, default=False, help='whether use val
 arg.add_argument('--dataset', type=str, default='rem', help='rem, miku, face, rem_face')
 
 opt = arg.parse_args()
+print(opt)
 
 # %% define parameters
 epoch = opt.epoch
@@ -58,6 +60,7 @@ dataset_loader = getattr(gan_datasets, 'load_{}'.format(dataset))
 
 CTX = mx.gpu() if opt.cuda else mx.cpu()
 logger.info('Will use {}'.format(CTX))
+make_noise = partial(make_noise, batch_size, nz, CTX)
 
 # %% define dataloader
 logger.info("Prepare data")
@@ -87,16 +90,20 @@ if val_set:
                                        last_batch='rollover', num_workers=get_cpus(), pin_memory=True)
 
 # %% define models
-generator = models.make_generic_gen(imageSize, nz=nz, nc=3, ngf=64, n_extra_layers=3)
-discriminator = models.make_generic_dis(imageSize, nc=3, ndf=64, n_extra_layers=3)
-generator.initialize(init=mx.init.Normal(0.02), ctx=CTX)
-discriminator.initialize(init=mx.init.Normal(0.02), ctx=CTX)
+generator = models.make_generic_gen(imageSize, nz=nz, nc=3, ngf=32, n_extra_layers=1)
+discriminator = models.make_generic_dis(imageSize, nc=3, ndf=32, n_extra_layers=1)
+generator.initialize(init=mx.init.Xavier(factor_type='in', magnitude=0.01), ctx=CTX)
+discriminator.initialize(init=mx.init.Xavier(factor_type='in', magnitude=0.01), ctx=CTX)
+
 print('Generator:')
-print(generator.summary(mx.nd.random_uniform(shape=(1, nz, 1, 1), ctx=CTX)))
-print('Discriminator:')
-print(discriminator.summary(mx.nd.random_uniform(shape=(1, 3, 256, 256), ctx=CTX)))
+generator.summary(mx.nd.random_normal(shape=(batch_size, nz, 1, 1), ctx=CTX))
+print('\nDiscriminator:')
+discriminator.summary(mx.nd.random_normal(shape=(batch_size, 3, imageSize, imageSize), ctx=CTX))
+
+# reinitialize the weights
 weight_init(discriminator)
 weight_init(generator)
+
 if getattr(opt, 'continue'):
     import utils
 
@@ -107,34 +114,30 @@ if getattr(opt, 'continue'):
 generator.hybridize()
 discriminator.hybridize()
 
-
-def make_noise(bs):
-    return mx.nd.random_normal(0, 1, shape=(bs, nz, 1, 1), ctx=CTX, dtype='float32')
-
-
 # %% prepare training
+logger.info("Prepare training")
 if should_use_val:
     history_labels = ['gloss', 'gval_loss', 'dloss', 'dval_loss']
 else:
     history_labels = ['gloss', 'dloss']
 history = TrainingHistory(labels=history_labels)
-logger.info("Prepare training")
 # scheduler = mx.lr_scheduler.MultiFactorScheduler(step=[100, 150, 170, 200, 300, 310, 320], factor=0.5, base_lr=lr)
 trainer_gen = gluon.Trainer(generator.collect_params(), optimizer='rmsprop', optimizer_params={
     'learning_rate': lr,
     'epsilon': 1e-13
 })
+# you can use weight clip in the training scope
 trainer_dis = gluon.Trainer(discriminator.collect_params(), optimizer='rmsprop', optimizer_params={
     'learning_rate': lr,
     'epsilon': 1e-11,
-    'clip_weights': 0.01
+    # 'clip_weights': 0.01
 })
 
 fix_noise_name = 'pred_noise_{}_{}'.format(nz, batch_size)
 if os.path.exists('fix_noise'):
     fix_noise = mx.nd.load(fix_noise_name)[0]
 else:
-    fix_noise = make_noise(batch_size)
+    fix_noise = make_noise()
     mx.nd.save(fix_noise_name, fix_noise)
 
 # %% begin training
@@ -145,8 +148,6 @@ iter4G = 100
 
 g_train_loss = 0.0
 d_train_loss = 0.0
-g_iter_times = 0
-d_iter_times = 0
 for ep in tqdm.tqdm(range(epoch_start, epoch + 1),
                     total=epoch,
                     desc="Total Progress",
@@ -167,22 +168,23 @@ for ep in tqdm.tqdm(range(epoch_start, epoch + 1),
             mininterval=1,
             maxinterval=5,
             dynamic_ncols=True):
-        bs = len(data)
         data = data.as_in_context(CTX)
 
         # use clip operation in optimizer
         # clip the discriminator
         clip_dis(discriminator, 0.01)
 
+        ########################################
         # begin training discriminator
+        ########################################
         if dis_update_time < iter4G:
-            d_iter_times += 1
             dis_update_time += 1
             with autograd.record():
                 # train with real image
                 err2real = discriminator(data).mean(axis=0).reshape(1)
 
-                fake_img = generator(make_noise(bs))
+                fake_img = generator(make_noise())
+
                 # train with fake image
                 # detach the input, or its gradients will be computed
                 err2fake = discriminator(fake_img.detach()).mean(axis=0).reshape(1)
@@ -192,13 +194,14 @@ for ep in tqdm.tqdm(range(epoch_start, epoch + 1),
             trainer_dis.step(1)
             d_train_loss = err4dis.asscalar()
 
+        ########################################
         # begin training generator
+        ########################################
         if dis_update_time == iter4G:
             dis_update_time = 0
             gen_update_time += 1
             with autograd.record():
-                g_iter_times += 1
-                fake_img = generator(make_noise(bs))
+                fake_img = generator(make_noise())
                 err4gen = discriminator(fake_img).mean(axis=0).reshape(1)
                 err4gen.backward()
             trainer_gen.step(1)
@@ -224,11 +227,13 @@ for ep in tqdm.tqdm(range(epoch_start, epoch + 1),
             # save history plot every epoch
             history.plot(save_path='logs/histories-w1')
 
+            # clear current state
             g_train_loss = 0.0
             d_train_loss = 0.0
             g_iter_times = 0
             d_iter_times = 0
 
+            # D:G training schedule
             if gen_update_time > 25:
                 iter4G = 5
 
