@@ -87,12 +87,14 @@ if val_set:
                                        last_batch='rollover', num_workers=get_cpus(), pin_memory=True)
 
 # %% define models
-generator = models.make_generic_gen(imageSize, nz=nz, nc=3, ngf=ngf, n_extra_layers=n_extra)
-discriminator = models.make_generic_dis(imageSize, nc=3, ndf=ndf, n_extra_layers=n_extra)
-generator.initialize(init=mx.init.Xavier(factor_type='in', magnitude=0.01), ctx=CTX)
-discriminator.initialize(init=mx.init.Xavier(factor_type='in', magnitude=0.01), ctx=CTX)
-discriminator(mx.nd.random_normal(shape=(1, 3, imageSize, imageSize), ctx=CTX))
-generator(mx.nd.random_normal(shape=(1, nz, 1, 1), ctx=CTX))
+generator = models.make_generic_gen(imageSize, nz=nz, nc=3, ngf=64, n_extra_layers=3)
+discriminator = models.make_generic_dis(imageSize, nc=3, ndf=64, n_extra_layers=3)
+generator.initialize(init=mx.init.Normal(0.02), ctx=CTX)
+discriminator.initialize(init=mx.init.Normal(0.02), ctx=CTX)
+print('Generator:')
+print(generator.summary(mx.nd.random_uniform(shape=(1, nz, 1, 1), ctx=CTX)))
+print('Discriminator:')
+print(discriminator.summary(mx.nd.random_uniform(shape=(1, 3, 256, 256), ctx=CTX)))
 weight_init(discriminator)
 weight_init(generator)
 if getattr(opt, 'continue'):
@@ -128,49 +130,12 @@ trainer_dis = gluon.Trainer(discriminator.collect_params(), optimizer='rmsprop',
     'clip_weights': 0.01
 })
 
-if os.path.exists('pred_noise'):
-    pred_noise = mx.nd.load('pred_noise')[0]
+fix_noise_name = 'pred_noise_{}_{}'.format(nz, batch_size)
+if os.path.exists('fix_noise'):
+    fix_noise = mx.nd.load(fix_noise_name)[0]
 else:
-    pred_noise = make_noise(batch_size)
-    mx.nd.save('pred_noise', pred_noise)
-
-
-# don't use it!!!!!!!!!!
-def validation(g, d, val_loader):
-    g_val_loss = 0.0
-    d_val_loss = 0.0
-    iter_times = 0
-    for data, _ in tqdm.tqdm(
-            val_loader,
-            desc="Validating",
-            leave=False,
-            unit='batch',
-            unit_scale=True,
-            mininterval=1,
-            maxinterval=5,
-            dynamic_ncols=True):
-        iter_times += 1
-        bs = len(data)
-        nosise = make_noise(bs)
-        data = data.as_in_context(CTX)
-        with autograd.predict_mode():
-            # loss for d
-            err2real = d(data).mean()
-
-            fake_img = g(nosise)
-            err2fake = d(fake_img).mean()
-
-            penalty = wasser_penalty(d, data, fake_img, 10, ctx=CTX)
-
-            err4sucker = (err2real - err2fake)
-            d_val_loss += err4sucker.asscalar()
-
-            # loss for g
-            fake_img = g(nosise)
-            err4fucker = -d(fake_img).mean()
-            g_val_loss += err4fucker.asscalar()
-    return g_val_loss / iter_times, d_val_loss / iter_times
-
+    fix_noise = make_noise(batch_size)
+    mx.nd.save(fix_noise_name, fix_noise)
 
 # %% begin training
 logger.info("Begin training")
@@ -204,6 +169,11 @@ for ep in tqdm.tqdm(range(epoch_start, epoch + 1),
             dynamic_ncols=True):
         bs = len(data)
         data = data.as_in_context(CTX)
+
+        # use clip operation in optimizer
+        # clip the discriminator
+        clip_dis(discriminator, 0.01)
+
         # begin training discriminator
         if dis_update_time < iter4G:
             d_iter_times += 1
@@ -222,10 +192,6 @@ for ep in tqdm.tqdm(range(epoch_start, epoch + 1),
             trainer_dis.step(1)
             d_train_loss = err4dis.asscalar()
 
-        # use clip operation in optimizer
-        # clip the discriminator
-        # clip_dis(discriminator, 0.01)
-
         # begin training generator
         if dis_update_time == iter4G:
             dis_update_time = 0
@@ -238,22 +204,15 @@ for ep in tqdm.tqdm(range(epoch_start, epoch + 1),
             trainer_gen.step(1)
             g_train_loss = err4gen.asscalar()
 
-            # use validation set or not
-            if should_use_val:
-                g_val_loss, d_val_loss = validation(generator, discriminator, val_loader)
-                history.update([g_train_loss, g_val_loss, d_train_loss, d_val_loss])
-                logger.info("Generator[train: {}, val: {}]".format(g_train_loss, g_val_loss))
-                logger.info("Discriminator[train: {}, val: {}]".format(d_train_loss, d_val_loss))
-            else:
-                history.update([g_train_loss, d_train_loss])
-                logger.info("Generator[{}], Discriminator[{}]".format(g_train_loss, d_train_loss))
+            history.update([g_train_loss, d_train_loss])
+            logger.info("Generator[{}], Discriminator[{}]".format(g_train_loss, d_train_loss))
 
             # make a prediction
             if gen_update_time % pred_per_gen == 0:
                 pred_path = 'logs/pred-w1'
                 makedirs(pred_path)
 
-                pred = generator(pred_noise)
+                pred = generator(fix_noise)
                 vis.show_img(pred.transpose((0, 2, 3, 1)), save_path=pred_path, epoch=gen_update_time)
 
             # save checkpoint
@@ -270,7 +229,7 @@ for ep in tqdm.tqdm(range(epoch_start, epoch + 1),
             g_iter_times = 0
             d_iter_times = 0
 
-            if gen_update_time > 30:
+            if gen_update_time > 25:
                 iter4G = 5
 
 history.plot(save_path='logs/histories-w1')
