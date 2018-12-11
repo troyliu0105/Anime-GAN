@@ -25,7 +25,7 @@ def make_dis(version: str = 'v1'):
         return ResDiscriminator(prefix='discriminator')
 
 
-def make_generic_gen(isize, nz, nc, ngf, n_extra_layers=0):
+def make_generic_gen(isize, nz, nc, ngf, n_extra_layers=0, use_bn=True):
     assert isize % 16 == 0, 'isize has to be a multiple of 16'
     gen = nn.HybridSequential(prefix='generator')
 
@@ -35,28 +35,27 @@ def make_generic_gen(isize, nz, nc, ngf, n_extra_layers=0):
         tisize *= 2
     # add input z vector
     gen.add(
-        nn.Conv2DTranspose(in_channels=nz, channels=cngf, kernel_size=4,
-                           strides=1, padding=0, use_bias=False, prefix='tconv_{}->{}-'.format(nz, cngf)),
-        nn.BatchNorm(in_channels=cngf, prefix='bn_{}->{}-'.format(nz, cngf)),
-        nn.LeakyReLU(0.1, prefix='lrelu{}->{}-'.format(nz, cngf))
-    )
+        nn.Conv2DTranspose(in_channels=nz, channels=cngf, kernel_size=4, strides=1, padding=0, use_bias=False,
+                           prefix='tconv_{}->{}-'.format(nz, cngf)))
+    if use_bn:
+        gen.add(nn.BatchNorm(in_channels=cngf, prefix='bn_{}->{}-'.format(nz, cngf)))
+    gen.add(nn.LeakyReLU(0.05, prefix='lrelu{}->{}-'.format(nz, cngf)))
     csize, cndf = 4, cngf
     while csize < isize // 2:
         gen.add(
-            nn.Conv2DTranspose(in_channels=cngf, channels=cngf // 2, kernel_size=4,
-                               strides=2, padding=1, use_bias=False),
-            nn.BatchNorm(in_channels=cngf // 2),
-            nn.LeakyReLU(0.1)
-        )
+            nn.Conv2DTranspose(in_channels=cngf, channels=cngf // 2, kernel_size=4, strides=2, padding=1,
+                               use_bias=False))
+        if use_bn:
+            gen.add(nn.BatchNorm(in_channels=cngf // 2))
+        gen.add(nn.LeakyReLU(0.05))
         cngf //= 2
         csize *= 2
 
     for extra in range(n_extra_layers):
-        gen.add(
-            nn.Conv2D(in_channels=cngf, channels=cngf, kernel_size=3, strides=1, padding=1, use_bias=False),
+        gen.add(nn.Conv2D(in_channels=cngf, channels=cngf, kernel_size=3, strides=1, padding=1, use_bias=False))
+        if use_bn:
             nn.BatchNorm(in_channels=cngf),
-            nn.LeakyReLU(0.1)
-        )
+        gen.add(nn.LeakyReLU(0.05))
     gen.add(
         nn.Conv2DTranspose(in_channels=cngf, channels=nc, kernel_size=4, strides=2, padding=1, use_bias=False),
         nn.Activation('tanh')
@@ -64,7 +63,7 @@ def make_generic_gen(isize, nz, nc, ngf, n_extra_layers=0):
     return gen
 
 
-def make_generic_dis(isize, nc, ndf, n_extra_layers=0):
+def make_generic_dis(isize, nc, ndf, n_extra_layers=0, use_bn=True):
     assert isize % 16 == 0, 'isize has to be a multiple of 16'
     dis = nn.HybridSequential(prefix='discriminator')
     dis.add(
@@ -73,23 +72,19 @@ def make_generic_dis(isize, nc, ndf, n_extra_layers=0):
     )
     csize, cndf = isize // 2, ndf
     for extra in range(n_extra_layers):
-        dis.add(
-            nn.Conv2D(in_channels=cndf, channels=cndf, kernel_size=3, strides=1, padding=1, use_bias=False),
-            nn.BatchNorm(in_channels=cndf),
-            nn.LeakyReLU(0.2)
-        )
+        dis.add(nn.Conv2D(in_channels=cndf, channels=cndf, kernel_size=3, strides=1, padding=1, use_bias=False))
+        if use_bn:
+            dis.add(nn.BatchNorm(in_channels=cndf))
+        dis.add(nn.LeakyReLU(0.2))
     while csize > 4:
         in_features = cndf
         out_features = cndf * 2
-        dis.add(
-            nn.Conv2D(in_channels=in_features, channels=out_features, kernel_size=4, strides=2, padding=1,
-                      use_bias=False),
-            nn.BatchNorm(in_channels=out_features),
-            nn.LeakyReLU(0.2)
-        )
+        dis.add(nn.Conv2D(in_channels=in_features, channels=out_features, kernel_size=4, strides=2, padding=1,
+                          use_bias=False))
+        if use_bn:
+            dis.add(nn.BatchNorm(in_channels=out_features))
+        dis.add(nn.LeakyReLU(0.2))
         cndf *= 2
         csize //= 2
-    dis.add(
-        nn.Conv2D(in_channels=cndf, channels=1, kernel_size=4, strides=1, padding=0, use_bias=False)
-    )
+    dis.add(nn.Conv2D(in_channels=cndf, channels=1, kernel_size=4, strides=1, padding=0, use_bias=False))
     return dis
