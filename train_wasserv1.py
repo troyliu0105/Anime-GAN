@@ -133,8 +133,8 @@ trainer_dis = gluon.Trainer(discriminator.collect_params(), optimizer='rmsprop',
     # 'clip_weights': 0.01
 })
 
-fix_noise_name = 'pred_noise_{}_{}'.format(nz, batch_size)
-if os.path.exists('fix_noise'):
+fix_noise_name = 'saved/fixednoise/{}_{}'.format(nz, batch_size)
+if os.path.exists(fix_noise_name):
     fix_noise = mx.nd.load(fix_noise_name)[0]
 else:
     fix_noise = make_noise()
