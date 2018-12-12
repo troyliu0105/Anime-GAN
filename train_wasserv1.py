@@ -57,6 +57,8 @@ pred_per_gen = opt.pred_per_gen
 should_use_val = opt.validation
 dataset = opt.dataset
 dataset_loader = getattr(gan_datasets, 'load_{}'.format(dataset))
+fix_noise_dir = 'saved/fixednoise'
+makedirs(fix_noise_dir)
 
 CTX = mx.gpu() if opt.cuda else mx.cpu()
 logger.info('Will use {}'.format(CTX))
@@ -133,7 +135,7 @@ trainer_dis = gluon.Trainer(discriminator.collect_params(), optimizer='rmsprop',
     # 'clip_weights': 0.01
 })
 
-fix_noise_name = 'saved/fixednoise/{}_{}'.format(nz, batch_size)
+fix_noise_name = os.path.join(fix_noise_dir, '{}_{}'.format(nz, batch_size))
 if os.path.exists(fix_noise_name):
     fix_noise = mx.nd.load(fix_noise_name)[0]
 else:
