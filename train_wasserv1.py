@@ -234,7 +234,14 @@ for ep in tqdm.tqdm(range(epoch_start, epoch + 1),
             d_iter_times = 0
 
             # D:G training schedule
-            if gen_update_time > 25:
+            if gen_update_time == 25:
                 iter4G = 5
+            elif gen_update_time == 10000:
+                iter4G = 4
+            elif gen_update_time == 100000:
+                iter4G = 3
+    # save history plot every epoch
+    if ep % 10 == 0:
+        history.plot(save_path='logs/histories-w1')
 
 history.plot(save_path='logs/histories-w1')
