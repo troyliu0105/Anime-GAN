@@ -12,7 +12,7 @@ from gluoncv.utils import makedirs
 
 import datasets as gan_datasets
 import models
-from utils import vis, get_cpus, TrainingHistory, make_noise
+from utils import vis, get_cpus, TrainingHistory, make_noise, var_saver
 from models.WasserStein import clip_dis
 from models.WasserStein import weight_init
 
@@ -24,12 +24,13 @@ arg.add_argument('--lr', type=float, default=0.00005, help='learning rate')
 arg.add_argument('--nz', type=int, default=256, help='z vector dimension')
 arg.add_argument('--imageSize', type=int, default=256, help='image size')
 arg.add_argument('--extra_layers', type=int, default=0, help='extra layers for d & g')
+arg.add_argument('--clip', type=float, default=0.01, help='clip weight')
 arg.add_argument('--ngf', type=int, default=64)
 arg.add_argument('--ndf', type=int, default=64)
 arg.add_argument('--batch', type=int, default=8, help='batch size')
 arg.add_argument('--epoch', type=int, default=5000000, help='training epochs')
-arg.add_argument('--continue', type=bool, default=True, help='should continue with last checkpoint')
-arg.add_argument('--save_checkpoint', type=bool, default=True, help='whether save checkpoint')
+arg.add_argument('--continue', action='store_true', default=False, help='should continue with last checkpoint')
+arg.add_argument('--save_checkpoint', action='store_true', default=False, help='whether save checkpoint')
 arg.add_argument('--save_per_epoch', type=int, default=500, help='save checkpoint every specific epochs')
 arg.add_argument('--save_dir', type=str, default='saved/params-w1', help='check point save path')
 arg.add_argument('--cuda', action='store_true', default=False, help='whether use gpu, default is True')
@@ -92,8 +93,8 @@ if val_set:
                                        last_batch='rollover', num_workers=get_cpus(), pin_memory=True)
 
 # %% define models
-generator = models.make_generic_gen(imageSize, nz=nz, nc=3, ngf=32, n_extra_layers=1)
-discriminator = models.make_generic_dis(imageSize, nc=3, ndf=32, n_extra_layers=1)
+generator = models.make_generic_gen(imageSize, nz=nz, nc=3, ngf=opt.ngf, n_extra_layers=1)
+discriminator = models.make_generic_dis(imageSize, nc=3, ndf=opt.ndf, n_extra_layers=1)
 generator.initialize(init=mx.init.Xavier(factor_type='in', magnitude=0.01), ctx=CTX)
 discriminator.initialize(init=mx.init.Xavier(factor_type='in', magnitude=0.01), ctx=CTX)
 
@@ -225,9 +226,6 @@ for ep in tqdm.tqdm(range(epoch_start, epoch + 1),
                 if ep % save_per_epoch == 0:
                     generator.save_parameters(os.path.join(save_dir, 'generator_{:04d}.params'.format(ep)))
                     discriminator.save_parameters(os.path.join(save_dir, 'discriminator_{:04d}.params'.format(ep)))
-
-            # save history plot every epoch
-            history.plot(save_path='logs/histories-w1')
 
             # clear current state
             g_train_loss = 0.0
